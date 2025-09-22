@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: splitwise-mcp-server
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m splitwise_mcp.fastmcp_sse_server
+    envVars:
+      - key: SPLITWISE_CONSUMER_KEY
+        sync: false
+      - key: SPLITWISE_CONSUMER_SECRET
+        sync: false
+      - key: SPLITWISE_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
+    region: oregon # You can change this to your preferred region
+    plan: free # Start with free tier, upgrade as needed

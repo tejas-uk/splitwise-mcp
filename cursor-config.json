@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "splitwise": {
+      "url": "https://YOUR-SERVICE-NAME.onrender.com/sse",
+      "transport": "sse",
+      "name": "Splitwise MCP",
+      "description": "Manage Splitwise expenses, groups, and friends",
+      "capabilities": {
+        "tools": [
+          "get_current_user",
+          "get_friends", 
+          "get_expenses",
+          "create_expense",
+          "get_groups",
+          "create_group",
+          "get_currencies",
+          "get_categories",
+          "get_notifications"
+        ]
+      },
+      "config": {
+        "timeout": 30000,
+        "retries": 3
+      }
+    }
+  }
+}
