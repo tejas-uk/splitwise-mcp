@@ -3,7 +3,7 @@ services:
     name: splitwise-mcp-server
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m splitwise_mcp.web_oauth_server
+    startCommand: python -m splitwise_mcp.integrated_server
     envVars:
       - key: SPLITWISE_CONSUMER_KEY
         sync: false
