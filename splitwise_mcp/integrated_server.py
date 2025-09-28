@@ -518,6 +518,87 @@ def get_notifications(limit: int = 10, user_id: Optional[str] = None) -> str:
         logger.error(f"Error getting notifications: {str(e)}")
         return f"Error: {str(e)}"
 
+# MCP OAuth Tools (Required for ChatGPT Connectors)
+
+@mcp.tool()
+def oauth_authorize() -> str:
+    """
+    Get OAuth authorization URL for ChatGPT connector.
+    
+    Returns:
+        str: OAuth authorization URL and instructions
+    """
+    try:
+        consumer_key = os.getenv('SPLITWISE_CONSUMER_KEY')
+        consumer_secret = os.getenv('SPLITWISE_CONSUMER_SECRET')
+        
+        if not consumer_key or not consumer_secret:
+            return "Error: SPLITWISE_CONSUMER_KEY and SPLITWISE_CONSUMER_SECRET must be set"
+        
+        # Get base URL for redirect URI
+        base_url = os.getenv('RENDER_EXTERNAL_URL', 'http://localhost:8080')
+        redirect_uri = f"{base_url}/oauth/callback"
+        
+        # Generate authorization URL
+        url, state = OAuthServer.get_authorization_url(consumer_key, consumer_secret, redirect_uri)
+        
+        return f"""OAuth Authorization URL: {url}
+
+Instructions:
+1. Visit the URL above in your browser
+2. Log in to Splitwise and authorize the application
+3. You'll be redirected to: {redirect_uri}
+4. Copy the 'code' parameter from the redirect URL
+5. Use the oauth_token tool with that code to complete authentication
+
+State: {state}"""
+        
+    except Exception as e:
+        logger.error(f"Error generating OAuth authorization URL: {e}")
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def oauth_token(code: str, state: str) -> str:
+    """
+    Exchange OAuth authorization code for access token.
+    
+    Args:
+        code: Authorization code from OAuth callback
+        state: State parameter from OAuth callback
+        
+    Returns:
+        str: Access token and authentication status
+    """
+    try:
+        consumer_key = os.getenv('SPLITWISE_CONSUMER_KEY')
+        consumer_secret = os.getenv('SPLITWISE_CONSUMER_SECRET')
+        
+        if not consumer_key or not consumer_secret:
+            return "Error: SPLITWISE_CONSUMER_KEY and SPLITWISE_CONSUMER_SECRET must be set"
+        
+        # Get base URL for redirect URI
+        base_url = os.getenv('RENDER_EXTERNAL_URL', 'http://localhost:8080')
+        redirect_uri = f"{base_url}/oauth/callback"
+        
+        # Exchange code for token
+        access_token = OAuthServer.exchange_code_for_token(consumer_key, consumer_secret, code, redirect_uri)
+        
+        # Store token for default user
+        from .token_storage import store_oauth_token
+        store_oauth_token("default_user", access_token)
+        
+        return f"""OAuth authentication successful!
+
+Access Token: {access_token[:20]}...{access_token[-10:]}
+Status: Authenticated
+User: default_user
+
+You can now use all Splitwise MCP tools with OAuth authentication."""
+        
+    except Exception as e:
+        logger.error(f"Error exchanging OAuth code for token: {e}")
+        return f"Error: {str(e)}"
+
 class IntegratedHandler(BaseHTTPRequestHandler):
     """HTTP handler that provides both OAuth and MCP functionality."""
     
@@ -879,6 +960,14 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                                 <div class="tool-name">get_notifications</div>
                                 <div class="tool-desc">Get recent notifications</div>
                             </div>
+                            <div class="tool">
+                                <div class="tool-name">oauth_authorize</div>
+                                <div class="tool-desc">Get OAuth authorization URL</div>
+                            </div>
+                            <div class="tool">
+                                <div class="tool-name">oauth_token</div>
+                                <div class="tool-desc">Exchange OAuth code for access token</div>
+                            </div>
                         </div>
                     </div>
                     
@@ -1140,7 +1229,9 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                     "create_group",
                     "get_currencies",
                     "get_categories",
-                    "get_notifications"
+                    "get_notifications",
+                    "oauth_authorize",
+                    "oauth_token"
                 ]
             }
             
