@@ -888,8 +888,8 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                         
                         <div class="url-list">
                             <div><strong>Homepage:</strong> <code>{base_url}/</code></div>
-                            <div><strong>Authorization URL:</strong> <code>{base_url}/oauth/authorize</code></div>
-                            <div><strong>Token URL:</strong> <code>{base_url}/oauth/callback</code></div>
+                            <div><strong>Authorization URL:</strong> <code>https://secure.splitwise.com/oauth/authorize</code></div>
+                            <div><strong>Token URL:</strong> <code>https://secure.splitwise.com/oauth/token</code></div>
                             <div><strong>Status URL:</strong> <code>{base_url}/oauth/status</code></div>
                             <div><strong>MCP Endpoint:</strong> <code>{base_url}/sse</code></div>
                             <div><strong>Health Check:</strong> <code>{base_url}/health</code></div>

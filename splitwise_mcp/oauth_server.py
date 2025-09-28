@@ -5,6 +5,7 @@ import os
 import json
 import secrets
 import logging
+import requests
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlencode, parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -135,14 +136,25 @@ class OAuthServer:
     
     @classmethod
     def get_authorization_url(cls, consumer_key: str, consumer_secret: str, 
-                            redirect_uri: str) -> Tuple[str, str]:
-        """Get OAuth authorization URL and state."""
+                             redirect_uri: str) -> Tuple[str, str]:
+        """Get OAuth authorization URL and state using official Splitwise OAuth 2.0 endpoints."""
         try:
-            # Initialize Splitwise client
-            splitwise = Splitwise(consumer_key, consumer_secret)
+            # Use official Splitwise OAuth 2.0 endpoints
+            authorize_url = "https://secure.splitwise.com/oauth/authorize"
             
-            # Generate authorization URL
-            url, state = splitwise.getOAuth2AuthorizeURL(redirect_uri)
+            # Generate state parameter for security
+            state = secrets.token_urlsafe(32)
+            
+            # Build authorization URL with required parameters
+            params = {
+                'response_type': 'code',
+                'client_id': consumer_key,
+                'redirect_uri': redirect_uri,
+                'state': state,
+                'scope': 'read write'  # Add appropriate scopes
+            }
+            
+            url = f"{authorize_url}?{urlencode(params)}"
             
             logger.info(f"Generated OAuth authorization URL with state: {state}")
             return url, state
@@ -154,13 +166,34 @@ class OAuthServer:
     @classmethod
     def exchange_code_for_token(cls, consumer_key: str, consumer_secret: str,
                               code: str, redirect_uri: str) -> str:
-        """Exchange authorization code for access token."""
+        """Exchange authorization code for access token using official Splitwise OAuth 2.0 endpoints."""
         try:
-            # Initialize Splitwise client
-            splitwise = Splitwise(consumer_key, consumer_secret)
+            import requests
             
-            # Exchange code for access token
-            access_token = splitwise.getOAuth2AccessToken(code, redirect_uri)
+            # Use official Splitwise OAuth 2.0 token endpoint
+            token_url = "https://secure.splitwise.com/oauth/token"
+            
+            # Prepare token exchange request
+            data = {
+                'grant_type': 'authorization_code',
+                'client_id': consumer_key,
+                'client_secret': consumer_secret,
+                'code': code,
+                'redirect_uri': redirect_uri
+            }
+            
+            # Make token exchange request
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+            
+            token_data = response.json()
+            
+            # Extract access token
+            if 'access_token' not in token_data:
+                raise ValueError(f"No access_token in response: {token_data}")
+            
+            access_token = token_data['access_token']
+            token_type = token_data.get('token_type', 'Bearer')
             
             logger.info("Successfully obtained OAuth access token")
             return access_token
