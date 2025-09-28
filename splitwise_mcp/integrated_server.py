@@ -619,6 +619,8 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                 self.handle_mcp_sse()
             elif self.path == '/oauth_config':
                 self.handle_oauth_config()
+            elif self.path == '/mcp/oauth_config':
+                self.handle_oauth_config()
             else:
                 self.send_error(404, "Not Found")
         except Exception as e:
@@ -1242,7 +1244,14 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                 "token_url": "https://secure.splitwise.com/oauth/token",
                 "client_id": consumer_key,
                 "redirect_uri": redirect_uri,
+                "redirect_uris": [
+                    redirect_uri,
+                    "https://chatgpt.com/oauth/callback",
+                    "https://chat.openai.com/oauth/callback",
+                    "https://chatgpt.com/connector_platform_oauth_redirect"
+                ],
                 "scope": "read write",
+                "scopes": ["read", "write"],
                 "response_type": "code",
                 "grant_type": "authorization_code"
             }
