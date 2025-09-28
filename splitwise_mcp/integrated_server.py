@@ -617,6 +617,8 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                 self.handle_health()
             elif self.path == '/sse':
                 self.handle_mcp_sse()
+            elif self.path == '/oauth_config':
+                self.handle_oauth_config()
             else:
                 self.send_error(404, "Not Found")
         except Exception as e:
@@ -633,6 +635,19 @@ class IntegratedHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Error handling POST request: {e}")
             self.send_error(500, f"Internal server error: {e}")
+    
+    def do_OPTIONS(self):
+        """Handle OPTIONS requests for CORS."""
+        try:
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+            self.send_header('Access-Control-Max-Age', '86400')
+            self.end_headers()
+        except Exception as e:
+            logger.error(f"Error handling OPTIONS request: {e}")
+            self.send_error(500, f"OPTIONS request error: {e}")
     
     def handle_home(self):
         """Handle home page with OAuth initiation."""
@@ -1206,6 +1221,44 @@ class IntegratedHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Error in health check: {e}")
             self.send_error(500, f"Health check error: {e}")
+    
+    def handle_oauth_config(self):
+        """Handle OAuth configuration requests from ChatGPT."""
+        try:
+            consumer_key = os.getenv('SPLITWISE_CONSUMER_KEY')
+            consumer_secret = os.getenv('SPLITWISE_CONSUMER_SECRET')
+            
+            if not consumer_key or not consumer_secret:
+                self.send_error(500, "OAuth not configured")
+                return
+            
+            # Get base URL for redirect URI
+            base_url = os.getenv('RENDER_EXTERNAL_URL', 'http://localhost:8080')
+            redirect_uri = f"{base_url}/oauth/callback"
+            
+            # OAuth configuration that ChatGPT expects
+            oauth_config = {
+                "authorization_url": "https://secure.splitwise.com/oauth/authorize",
+                "token_url": "https://secure.splitwise.com/oauth/token",
+                "client_id": consumer_key,
+                "redirect_uri": redirect_uri,
+                "scope": "read write",
+                "response_type": "code",
+                "grant_type": "authorization_code"
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+            self.end_headers()
+            
+            self.wfile.write(json.dumps(oauth_config).encode())
+            
+        except Exception as e:
+            logger.error(f"Error in OAuth config: {e}")
+            self.send_error(500, f"OAuth config error: {e}")
     
     def handle_mcp_sse(self):
         """Handle MCP SSE requests."""
