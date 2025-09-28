@@ -17,8 +17,8 @@ A Model Context Protocol (MCP) server that provides tools for managing Splitwise
 ### Prerequisites
 
 - Python 3.10+
-- Splitwise API credentials ([Get them here](https://secure.splitwise.com/apps))
-- For OAuth: Splitwise Consumer Key and Secret (see [OAuth Setup Guide](OAUTH_SETUP.md))
+- Splitwise OAuth credentials ([Get them here](https://secure.splitwise.com/apps))
+- For deployment: Render account (free tier works)
 
 ### Installation
 
@@ -40,155 +40,77 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-2. Add your Splitwise credentials to `.env`:
-
-**For API Key Authentication:**
+2. Add your Splitwise OAuth credentials to `.env`:
 ```
 SPLITWISE_CONSUMER_KEY=your_consumer_key_here
 SPLITWISE_CONSUMER_SECRET=your_consumer_secret_here
 SPLITWISE_API_KEY=your_api_key_here
 ```
 
-**For OAuth Authentication:**
-```
-SPLITWISE_CONSUMER_KEY=your_consumer_key_here
-SPLITWISE_CONSUMER_SECRET=your_consumer_secret_here
-```
-
-See [OAuth Setup Guide](OAUTH_SETUP.md) for detailed OAuth configuration.
-
 ## Usage
 
-### Local Development (stdio)
+### Local Development
 
 ```bash
-# Run the FastMCP server locally
-python -m splitwise_mcp.fastmcp_server
+# Run the integrated server locally
+python -m splitwise_mcp.integrated_server
 
-# Or use the command
-splitwise-mcp-fast
-```
-
-### HTTP/SSE Server (for Cursor/Cloud)
-
-```bash
-# Run the SSE server
-python -m splitwise_mcp.fastmcp_sse_server
-
-# Or use the command
-splitwise-mcp-fast-sse
-
-# Server will start on http://localhost:8000/sse
+# Server will start on http://localhost:8080
+# Homepage: http://localhost:8080/
+# OAuth: http://localhost:8080/oauth/authorize
+# MCP: http://localhost:8080/sse
 ```
 
 ### Deploy to Render
 
-See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for detailed cloud deployment instructions.
+See [RENDER_OAUTH_DEPLOYMENT.md](RENDER_OAUTH_DEPLOYMENT.md) for detailed cloud deployment instructions.
 
-## Available Tools
-
-### Authentication
-- **`start_oauth_authentication`** - Start OAuth authentication flow
-- **`complete_oauth_authentication`** - Complete OAuth authentication
-- **`check_oauth_status`** - Check OAuth authentication status
-- **`revoke_oauth_authentication`** - Revoke OAuth authentication
-- **`list_oauth_users`** - List all authenticated users
+## Available MCP Tools
 
 ### User Management
 - **`get_current_user`** - Get current user information
-- **`get_current_user_id`** - Get your user ID for expense splits
 - **`get_friends`** - List all friends with their IDs
 
 ### Expense Management
 - **`get_expenses`** - Retrieve expenses with optional filters
-  - Filter by group_id, friend_id, or limit
-- **`create_expense`** - Create new expenses with custom splits
-  - Requires explicit user_splits for all participants
-  - Validates that paid amounts = owed amounts = total cost
 
 ### Group Management
 - **`get_groups`** - List all groups with member counts
-- **`create_group`** - Create new groups (apartment, house, trip, other)
 
 ### Utilities
 - **`get_currencies`** - List all supported currencies
 - **`get_categories`** - List expense categories and subcategories
-- **`get_notifications`** - Get recent notifications
 
-## Example: Creating an Expense
+## Example: Using with ChatGPT
 
-### With API Key Authentication
-```python
-# First, get your user ID
-get_current_user_id()
-# Returns: "Your user ID is: 79774"
+### OAuth Authentication Flow
+1. **Visit your server homepage**: `https://your-app-name.onrender.com/`
+2. **Click "Start Authentication"** and log into Splitwise
+3. **Authorize the app** to access your Splitwise data
+4. **Configure ChatGPT** with MCP endpoint: `https://your-app-name.onrender.com/sse`
+5. **Start using!** Ask ChatGPT to help manage your Splitwise expenses
 
-# Get friend IDs
-get_friends()
-# Returns list with friend names and IDs
+### Example ChatGPT Commands
+- "Show me my recent Splitwise expenses"
+- "List all my Splitwise groups"
+- "What currencies does Splitwise support?"
+- "Show me my Splitwise friends"
 
-# Create expense: You paid $100 for dinner, split with friend
-create_expense(
-    description="Dinner at restaurant",
-    cost="100.00",
-    user_splits=[
-        {"user_id": 79774, "paid_share": "100.00", "owed_share": "50.00"},  # You
-        {"user_id": 12345, "paid_share": "0.00", "owed_share": "50.00"}    # Friend
-    ]
-)
-```
+## ChatGPT Configuration
 
-### With OAuth Authentication
-```python
-# First, authenticate with OAuth
-start_oauth_authentication()
-# Complete authentication in browser, then:
-complete_oauth_authentication(code="auth_code", state="state", user_id="user_123")
+Add to your ChatGPT MCP connector settings:
 
-# Use OAuth for API calls
-get_current_user_id(user_id="user_123")
-get_friends(user_id="user_123")
-
-# Create expense with OAuth
-create_expense(
-    description="Dinner at restaurant",
-    cost="100.00",
-    user_splits=[...],
-    user_id="user_123"
-)
-```
-
-## Cursor Configuration
-
-Add to your Cursor MCP settings (`.cursor/mcp.json`):
-
-### For Local Development:
 ```json
 {
   "mcpServers": {
     "splitwise": {
-      "command": "python",
-      "args": ["-m", "splitwise_mcp.fastmcp_server"],
-      "cwd": "/path/to/splitwise-mcp"
-    }
-  }
-}
-```
-
-### For Cloud Deployment:
-```json
-{
-  "mcpServers": {
-    "splitwise": {
-      "url": "https://your-app.onrender.com/sse",
+      "url": "https://your-app-name.onrender.com/sse",
       "transport": "sse",
       "name": "Splitwise MCP"
     }
   }
 }
 ```
-
-See [cursor-config.json](cursor-config.json) for a complete example.
 
 ## Development
 
@@ -215,13 +137,12 @@ mypy splitwise_mcp/
 splitwise-mcp/
 ├── splitwise_mcp/
 │   ├── __init__.py
-│   ├── fastmcp_server.py      # Main FastMCP server (stdio)
-│   └── fastmcp_sse_server.py  # HTTP/SSE server for cloud
+│   ├── integrated_server.py   # Main integrated server (OAuth + MCP)
+│   ├── fastmcp_server.py      # FastMCP tools
+│   ├── oauth_server.py        # OAuth flow handling
+│   └── token_storage.py       # Secure token storage
 ├── tests/
 │   └── test_fastmcp_server.py
-├── .env.example               # Environment template
-├── .gitignore                 # Git ignore file
-├── cursor-config.json         # Cursor configuration example
 ├── render.yaml                # Render deployment config
 ├── requirements.txt           # Python dependencies
 ├── pyproject.toml            # Project configuration

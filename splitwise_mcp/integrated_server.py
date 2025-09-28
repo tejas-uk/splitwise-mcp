@@ -6,12 +6,15 @@ import json
 import logging
 import time
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 from urllib.parse import urlencode, parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 import webbrowser
 from splitwise import Splitwise
+from splitwise.expense import Expense
+from splitwise.group import Group
+from splitwise.user import ExpenseUser
 
 # Import OAuth components
 from .oauth_server import OAuthServer
@@ -85,10 +88,22 @@ def get_splitwise_client(user_id: Optional[str] = None) -> Splitwise:
     
     return splitwise_client
 
-# MCP Tools
+# MCP Tools - User Management
+
 @mcp.tool()
 def get_current_user(user_id: Optional[str] = None) -> str:
-    """Get current user information."""
+    """
+    Fetch information about the currently authenticated Splitwise user.
+    
+    Args:
+        user_id: Optional user ID for OAuth authentication
+    
+    Returns:
+        str: Formatted string with user's name and email
+        
+    Raises:
+        Exception: If unable to fetch user information from Splitwise API
+    """
     try:
         client = get_splitwise_client(user_id)
         user = client.getCurrentUser()
@@ -98,8 +113,44 @@ def get_current_user(user_id: Optional[str] = None) -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
+def get_current_user_id(user_id: Optional[str] = None) -> str:
+    """
+    Fetch the user ID of the currently authenticated Splitwise user.
+    
+    Args:
+        user_id: Optional user ID for OAuth authentication
+    
+    Returns:
+        str: The user's ID that can be used in expense splits
+        
+    Raises:
+        Exception: If unable to fetch user information from Splitwise API
+        
+    Note:
+        Use this ID when creating expenses where you are one of the participants
+    """
+    try:
+        client = get_splitwise_client(user_id)
+        user = client.getCurrentUser()
+        return f"Your user ID is: {user.id}"
+    except Exception as e:
+        logger.error(f"Error getting current user ID: {str(e)}")
+        return f"Error: {str(e)}"
+
+@mcp.tool()
 def get_friends(user_id: Optional[str] = None) -> str:
-    """Get list of friends."""
+    """
+    Retrieve the list of friends associated with the current user.
+    
+    Args:
+        user_id: Optional user ID for OAuth authentication
+    
+    Returns:
+        str: Formatted list of friends with their names and IDs
+        
+    Raises:
+        Exception: If unable to fetch friends list from Splitwise API
+    """
     try:
         client = get_splitwise_client(user_id)
         friends = client.getFriends()
@@ -116,19 +167,46 @@ def get_friends(user_id: Optional[str] = None) -> str:
         logger.error(f"Error getting friends: {str(e)}")
         return f"Error: {str(e)}"
 
+# MCP Tools - Expense Management
+
 @mcp.tool()
-def get_expenses(user_id: Optional[str] = None, limit: int = 10) -> str:
-    """Get recent expenses."""
+def get_expenses(
+    group_id: Optional[int] = None,
+    friend_id: Optional[int] = None,
+    limit: int = 10,
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Retrieve a list of expenses with optional filtering by group or friend.
+    
+    Args:
+        group_id: Optional group ID to filter expenses by specific group
+        friend_id: Optional friend ID to filter expenses involving specific friend
+        limit: Maximum number of expenses to return (default: 10)
+        user_id: Optional user ID for OAuth authentication
+        
+    Returns:
+        str: Formatted list of expenses with description, cost, and currency
+        
+    Raises:
+        Exception: If unable to fetch expenses from Splitwise API
+    """
     try:
         client = get_splitwise_client(user_id)
-        expenses = client.getExpenses(limit=limit)
+        expenses = client.getExpenses(
+            group_id=group_id,
+            friend_id=friend_id,
+            limit=limit
+        )
         
         if not expenses:
-            return "No expenses found."
+            return "No expenses found with the specified criteria."
         
-        expense_list = ["Recent Expenses:"]
+        expense_list = ["Expenses:"]
         for expense in expenses:
-            expense_list.append(f"- {expense.description}: {expense.cost} {expense.currency_code}")
+            expense_list.append(
+                f"- {expense.description}: {expense.cost} {expense.currency_code} (ID: {expense.id})"
+            )
         
         return "\n".join(expense_list)
     except Exception as e:
@@ -136,8 +214,146 @@ def get_expenses(user_id: Optional[str] = None, limit: int = 10) -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
+def create_expense(
+    description: str,
+    cost: str,
+    user_splits: List[Dict[str, Any]],
+    currency_code: str = "USD",
+    group_id: Optional[int] = None,
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Create a new expense and split it among users.
+    
+    IMPORTANT: You must include ALL users involved in the expense, including yourself.
+    Use get_current_user_id() to get your user ID and get_friends() to get friend IDs.
+    
+    Args:
+        description: Description of the expense (e.g., "Dinner at restaurant")
+        cost: Total cost of the expense as a string (Splitwise requirement)
+        user_splits: List of user splits. Each split must have:
+                     - user_id: ID of the user (integer)
+                     - paid_share: Amount this user paid (as string, e.g., "50.00")
+                     - owed_share: Amount this user owes (as string, e.g., "25.00")
+                     
+                     Rules:
+                     - Sum of all paid_share must equal cost
+                     - Sum of all owed_share must equal cost
+                     - Include yourself in the splits
+        currency_code: Three-letter currency code (default: USD)
+        group_id: Optional group ID to add expense to a specific group
+        user_id: Optional user ID for OAuth authentication
+                     
+    Returns:
+        str: Confirmation message with created expense details
+        
+    Raises:
+        ValueError: If user_splits is empty or invalid
+        Exception: If expense creation fails or validation errors occur
+    """
+    try:
+        # Validate user_splits
+        if not user_splits:
+            return "Error: user_splits is required and cannot be empty"
+        
+        if not isinstance(user_splits, list):
+            return "Error: user_splits must be a list of dictionaries"
+        
+        # Validate each split and ensure proper data types
+        for split in user_splits:
+            if not all(key in split for key in ["user_id", "paid_share", "owed_share"]):
+                return "Error: Each split must have user_id, paid_share, and owed_share"
+            
+            # Validate that shares are strings (Splitwise requirement)
+            if not isinstance(split["paid_share"], str):
+                return f"Error: paid_share must be a string, got {type(split['paid_share']).__name__}"
+            
+            if not isinstance(split["owed_share"], str):
+                return f"Error: owed_share must be a string, got {type(split['owed_share']).__name__}"
+        
+        # Validate that total paid equals total owed
+        total_paid = sum(float(split["paid_share"]) for split in user_splits)
+        total_owed = sum(float(split["owed_share"]) for split in user_splits)
+        
+        if abs(total_paid - total_owed) > 0.01:  # Allow small rounding differences
+            return f"Error: Total paid ({total_paid:.2f}) must equal total owed ({total_owed:.2f})"
+        
+        # Validate that total paid equals the expense cost
+        if abs(total_paid - float(cost)) > 0.01:
+            return f"Error: Total paid ({total_paid:.2f}) must equal expense cost ({cost})"
+        
+        client = get_splitwise_client(user_id)
+        
+        expense = Expense()
+        expense.setDescription(str(description))
+        expense.setCost(str(cost))
+        expense.setCurrencyCode(str(currency_code))
+        
+        if group_id:
+            expense.setGroupId(int(group_id))
+        
+        # Create users list with proper ExpenseUser objects
+        users = []
+        for split in user_splits:
+            expense_user = ExpenseUser()
+            expense_user.setId(int(split["user_id"]))
+            expense_user.setPaidShare(str(split["paid_share"]))
+            expense_user.setOwedShare(str(split["owed_share"]))
+            users.append(expense_user)
+        
+        expense.setUsers(users)
+        
+        # Log the expense details for debugging
+        logger.info(f"Creating expense: {description}, Cost: {cost}, Users: {len(users)}")
+        for i, split in enumerate(user_splits):
+            logger.info(f"  User {i+1}: ID={split['user_id']}, Paid={split['paid_share']}, Owed={split['owed_share']}")
+        
+        created_expense, errors = client.createExpense(expense)
+        
+        if errors:
+            # Extract error messages from Splitwise error object
+            if hasattr(errors, 'errors'):
+                error_messages = []
+                for error in errors.errors:
+                    if hasattr(error, 'message'):
+                        error_messages.append(error.message)
+                    else:
+                        error_messages.append(str(error))
+                error_text = "; ".join(error_messages)
+            elif hasattr(errors, 'message'):
+                error_text = errors.message
+            else:
+                error_text = str(errors)
+            
+            logger.error(f"Splitwise API errors: {error_text}")
+            return f"Error creating expense: {error_text}"
+        
+        if not created_expense:
+            return "Error: Expense creation failed with no error message"
+        
+        return (f"Created expense: {created_expense.description} - "
+                f"{created_expense.cost} {created_expense.currency_code} "
+                f"(ID: {created_expense.id})")
+    except Exception as e:
+        logger.error(f"Error creating expense: {str(e)}", exc_info=True)
+        return f"Error: {str(e)}"
+
+# MCP Tools - Group Management
+
+@mcp.tool()
 def get_groups(user_id: Optional[str] = None) -> str:
-    """Get list of groups."""
+    """
+    Retrieve all groups associated with the current user.
+    
+    Args:
+        user_id: Optional user ID for OAuth authentication
+    
+    Returns:
+        str: Formatted list of groups with names, IDs, and member counts
+        
+    Raises:
+        Exception: If unable to fetch groups from Splitwise API
+    """
     try:
         client = get_splitwise_client(user_id)
         groups = client.getGroups()
@@ -156,8 +372,66 @@ def get_groups(user_id: Optional[str] = None) -> str:
         return f"Error: {str(e)}"
 
 @mcp.tool()
+def create_group(
+    name: str,
+    description: str = "",
+    group_type: str = "other",
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Create a new expense sharing group in Splitwise.
+    
+    Args:
+        name: Name of the group (e.g., "Europe Trip 2024")
+        description: Optional description providing more details about the group
+        group_type: Type of group - one of: apartment, house, trip, other (default: other)
+        user_id: Optional user ID for OAuth authentication
+        
+    Returns:
+        str: Confirmation message with created group name and ID
+        
+    Raises:
+        ValueError: If invalid group type is provided
+        Exception: If group creation fails
+        
+    Example:
+        create_group("Beach House Weekend", "Summer vacation rental", "trip")
+    """
+    try:
+        valid_types = ["apartment", "house", "trip", "other"]
+        if group_type not in valid_types:
+            return f"Invalid group type. Must be one of: {', '.join(valid_types)}"
+        
+        client = get_splitwise_client(user_id)
+        
+        group = Group()
+        group.setName(name)
+        group.setDescription(description)
+        group.setType(group_type)
+        
+        created_group, errors = client.createGroup(group)
+        
+        if errors:
+            return f"Error creating group: {errors}"
+        
+        return f"Created group: {created_group.name} (ID: {created_group.id})"
+    except Exception as e:
+        logger.error(f"Error creating group: {str(e)}")
+        return f"Error: {str(e)}"
+
+# MCP Tools - Utilities
+
+@mcp.tool()
 def get_currencies() -> str:
-    """Get supported currencies."""
+    """
+    Retrieve the list of all currencies supported by Splitwise.
+    
+    Returns:
+        str: Formatted list of currency codes and their units
+        
+    Raises:
+        Exception: If unable to fetch currencies from Splitwise API
+    """
     try:
         client = get_splitwise_client()
         currencies = client.getCurrencies()
@@ -176,7 +450,18 @@ def get_currencies() -> str:
 
 @mcp.tool()
 def get_categories() -> str:
-    """Get expense categories."""
+    """
+    Retrieve all available expense categories from Splitwise.
+    
+    Returns:
+        str: Formatted list of expense categories with names and IDs
+        
+    Raises:
+        Exception: If unable to fetch categories from Splitwise API
+        
+    Note:
+        Categories help organize expenses (e.g., Food, Transportation, Entertainment)
+    """
     try:
         client = get_splitwise_client()
         categories = client.getCategories()
@@ -186,8 +471,10 @@ def get_categories() -> str:
         
         category_list = ["Expense Categories:"]
         for category in categories:
+            # Handle main categories
             category_list.append(f"- {category.name} (ID: {category.id})")
             
+            # Handle subcategories if they exist
             if hasattr(category, 'subcategories') and category.subcategories:
                 for subcat in category.subcategories:
                     category_list.append(f"  - {subcat.name} (ID: {subcat.id})")
@@ -195,6 +482,40 @@ def get_categories() -> str:
         return "\n".join(category_list)
     except Exception as e:
         logger.error(f"Error getting categories: {str(e)}")
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def get_notifications(limit: int = 10, user_id: Optional[str] = None) -> str:
+    """
+    Fetch recent notifications for the current user from Splitwise.
+    
+    Args:
+        limit: Maximum number of notifications to retrieve (default: 10)
+        user_id: Optional user ID for OAuth authentication
+        
+    Returns:
+        str: Formatted list of notifications with their content
+        
+    Raises:
+        Exception: If unable to fetch notifications from Splitwise API
+        
+    Note:
+        Notifications include updates about expenses, payments, and group activities
+    """
+    try:
+        client = get_splitwise_client(user_id)
+        notifications = client.getNotifications(limit=limit)
+        
+        if not notifications:
+            return "No notifications found."
+        
+        notification_list = ["Notifications:"]
+        for notification in notifications:
+            notification_list.append(f"- {notification.content} (ID: {notification.id})")
+        
+        return "\n".join(notification_list)
+    except Exception as e:
+        logger.error(f"Error getting notifications: {str(e)}")
         return f"Error: {str(e)}"
 
 class IntegratedHandler(BaseHTTPRequestHandler):
@@ -523,6 +844,10 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                                 <div class="tool-desc">Get your Splitwise account information</div>
                             </div>
                             <div class="tool">
+                                <div class="tool-name">get_current_user_id</div>
+                                <div class="tool-desc">Get your user ID for expense splits</div>
+                            </div>
+                            <div class="tool">
                                 <div class="tool-name">get_friends</div>
                                 <div class="tool-desc">List all your Splitwise friends</div>
                             </div>
@@ -531,8 +856,16 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                                 <div class="tool-desc">Retrieve expenses with filters</div>
                             </div>
                             <div class="tool">
+                                <div class="tool-name">create_expense</div>
+                                <div class="tool-desc">Create new expenses with custom splits</div>
+                            </div>
+                            <div class="tool">
                                 <div class="tool-name">get_groups</div>
                                 <div class="tool-desc">List all your groups</div>
+                            </div>
+                            <div class="tool">
+                                <div class="tool-name">create_group</div>
+                                <div class="tool-desc">Create new expense groups</div>
                             </div>
                             <div class="tool">
                                 <div class="tool-name">get_currencies</div>
@@ -541,6 +874,10 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                             <div class="tool">
                                 <div class="tool-name">get_categories</div>
                                 <div class="tool-desc">List expense categories</div>
+                            </div>
+                            <div class="tool">
+                                <div class="tool-name">get_notifications</div>
+                                <div class="tool-desc">Get recent notifications</div>
                             </div>
                         </div>
                     </div>
@@ -795,11 +1132,15 @@ class IntegratedHandler(BaseHTTPRequestHandler):
                 "status": "ready",
                 "tools": [
                     "get_current_user",
+                    "get_current_user_id",
                     "get_friends", 
                     "get_expenses",
+                    "create_expense",
                     "get_groups",
+                    "create_group",
                     "get_currencies",
-                    "get_categories"
+                    "get_categories",
+                    "get_notifications"
                 ]
             }
             

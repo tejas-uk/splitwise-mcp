@@ -38,10 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-splitwise-mcp = "splitwise_mcp.server:main"
-splitwise-mcp-sse = "splitwise_mcp.sse_server:main"
-splitwise-mcp-fast = "splitwise_mcp.fastmcp_server:main"
-splitwise-mcp-fast-sse = "splitwise_mcp.fastmcp_sse_server:main"
+splitwise-mcp = "splitwise_mcp.integrated_server:main"
 
 [tool.black]
 line-length = 88
