@@ -8,6 +8,8 @@ A Model Context Protocol (MCP) server that provides tools for managing Splitwise
 - **Expense Management**: Create and retrieve expenses with custom splits
 - **Group Management**: Create and manage expense groups
 - **Utilities**: Access currencies, categories, and notifications
+- **OAuth Authentication**: Secure user authentication with their own Splitwise credentials
+- **Multi-User Support**: Multiple users can authenticate independently
 - **Multiple Deployment Options**: Local, stdio, or cloud deployment via HTTP/SSE
 
 ## Quick Start
@@ -16,6 +18,7 @@ A Model Context Protocol (MCP) server that provides tools for managing Splitwise
 
 - Python 3.10+
 - Splitwise API credentials ([Get them here](https://secure.splitwise.com/apps))
+- For OAuth: Splitwise Consumer Key and Secret (see [OAuth Setup Guide](OAUTH_SETUP.md))
 
 ### Installation
 
@@ -38,11 +41,21 @@ cp .env.example .env
 ```
 
 2. Add your Splitwise credentials to `.env`:
+
+**For API Key Authentication:**
 ```
 SPLITWISE_CONSUMER_KEY=your_consumer_key_here
 SPLITWISE_CONSUMER_SECRET=your_consumer_secret_here
 SPLITWISE_API_KEY=your_api_key_here
 ```
+
+**For OAuth Authentication:**
+```
+SPLITWISE_CONSUMER_KEY=your_consumer_key_here
+SPLITWISE_CONSUMER_SECRET=your_consumer_secret_here
+```
+
+See [OAuth Setup Guide](OAUTH_SETUP.md) for detailed OAuth configuration.
 
 ## Usage
 
@@ -74,6 +87,13 @@ See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for detailed cloud deployment i
 
 ## Available Tools
 
+### Authentication
+- **`start_oauth_authentication`** - Start OAuth authentication flow
+- **`complete_oauth_authentication`** - Complete OAuth authentication
+- **`check_oauth_status`** - Check OAuth authentication status
+- **`revoke_oauth_authentication`** - Revoke OAuth authentication
+- **`list_oauth_users`** - List all authenticated users
+
 ### User Management
 - **`get_current_user`** - Get current user information
 - **`get_current_user_id`** - Get your user ID for expense splits
@@ -97,6 +117,7 @@ See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for detailed cloud deployment i
 
 ## Example: Creating an Expense
 
+### With API Key Authentication
 ```python
 # First, get your user ID
 get_current_user_id()
@@ -114,6 +135,26 @@ create_expense(
         {"user_id": 79774, "paid_share": "100.00", "owed_share": "50.00"},  # You
         {"user_id": 12345, "paid_share": "0.00", "owed_share": "50.00"}    # Friend
     ]
+)
+```
+
+### With OAuth Authentication
+```python
+# First, authenticate with OAuth
+start_oauth_authentication()
+# Complete authentication in browser, then:
+complete_oauth_authentication(code="auth_code", state="state", user_id="user_123")
+
+# Use OAuth for API calls
+get_current_user_id(user_id="user_123")
+get_friends(user_id="user_123")
+
+# Create expense with OAuth
+create_expense(
+    description="Dinner at restaurant",
+    cost="100.00",
+    user_splits=[...],
+    user_id="user_123"
 )
 ```
 
